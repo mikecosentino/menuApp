@@ -1,0 +1,14 @@
+# Swift Package Manager / build artifacts
+.build/
+*.app
+
+# Xcode
+*.xcodeproj
+.swiftpm/
+DerivedData/
+
+# Claude Code local settings
+.claude/
+
+# macOS
+.DS_Store
