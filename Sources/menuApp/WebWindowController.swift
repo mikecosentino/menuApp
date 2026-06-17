@@ -10,10 +10,6 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     private var titleLabel: NSTextField!
     private var loadedURL: URL?
 
-    private static let mobileUserAgent =
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 " +
-        "(KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1"
-
     private let headerHeight: CGFloat = 30
 
     init(app: MenuApp) {
@@ -32,12 +28,13 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
 
         panel = KeyablePanel(
             contentRect: contentRect,
-            styleMask: [.borderless],
+            styleMask: [.borderless, .resizable],
             backing: .buffered,
             defer: false
         )
         panel.becomesKeyOnlyIfNeeded = false
         panel.level = app.alwaysOnTop ? .floating : .normal
+        panel.minSize = NSSize(width: 240, height: 230)
         panel.isMovableByWindowBackground = false
         panel.hidesOnDeactivate = false
         panel.isOpaque = false
@@ -130,7 +127,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
 
         let frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
         webView = WKWebView(frame: frame, configuration: config)
-        webView.customUserAgent = WebWindowController.mobileUserAgent
+        webView.customUserAgent = app.resolvedUserAgent
         webView.autoresizingMask = [.width, .height]
         webView.uiDelegate = self
         webView.navigationDelegate = self
@@ -138,6 +135,12 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
             webView.isInspectable = true
         }
         container.addSubview(webView)
+
+        // Resize grip, bottom-right.
+        let grip = ResizeGripView(frame: NSRect(x: size.width - 16, y: 0, width: 16, height: 16))
+        grip.minSize = panel.minSize
+        grip.autoresizingMask = [.minXMargin, .maxYMargin]
+        container.addSubview(grip)
     }
 
     private func makeButton(symbol: String, action: Selector) -> NSButton {
@@ -155,8 +158,10 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     /// Shows the window, positioning it under `statusButton` unless the user has moved it before.
     func show(relativeTo statusButton: NSStatusBarButton?) {
         ensureLoaded()
-        if let saved = savedOrigin() {
-            panel.setFrameOrigin(saved)
+        // Size comes from the model; position is remembered separately (or placed under the icon).
+        resizeWindow()
+        if let origin = savedOrigin() {
+            panel.setFrameOrigin(clampOrigin(origin))
         } else if let button = statusButton {
             positionUnder(button)
         } else {
@@ -215,6 +220,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     func update(with newApp: MenuApp) {
         let urlChanged = newApp.urlString != app.urlString
         let sizeChanged = newApp.width != app.width || newApp.height != app.height
+        let uaChanged = newApp.resolvedUserAgent != app.resolvedUserAgent
         app = newApp
         titleLabel.stringValue = newApp.name
         pinButton?.image = NSImage(
@@ -225,7 +231,8 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         if sizeChanged { resizeWindow() }
         panel.alphaValue = CGFloat(newApp.opacity)
         panel.level = newApp.alwaysOnTop ? .floating : .normal
-        if urlChanged {
+        if uaChanged { webView.customUserAgent = newApp.resolvedUserAgent }
+        if urlChanged || uaChanged {
             loadedURL = nil
             if panel.isVisible { ensureLoaded() }
         }
@@ -280,16 +287,16 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         panel.setFrame(frame, display: true)
     }
 
-    // MARK: - Position persistence (per app id, in UserDefaults)
+    // MARK: - Position persistence (per app id, in UserDefaults).
+    // Size lives in the model (so it shows in Settings); only the position is stored here.
 
     private var positionKey: String { "window.origin.\(app.id.uuidString)" }
 
     private func savedOrigin() -> NSPoint? {
         let defaults = UserDefaults.standard
         guard defaults.object(forKey: positionKey + ".x") != nil else { return nil }
-        let x = defaults.double(forKey: positionKey + ".x")
-        let y = defaults.double(forKey: positionKey + ".y")
-        return NSPoint(x: x, y: y)
+        return NSPoint(x: defaults.double(forKey: positionKey + ".x"),
+                       y: defaults.double(forKey: positionKey + ".y"))
     }
 
     private func saveOrigin() {
@@ -299,10 +306,32 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         defaults.set(Double(origin.y), forKey: positionKey + ".y")
     }
 
+    /// Keeps an origin on-screen (e.g. if the display layout changed since it was saved).
+    private func clampOrigin(_ origin: NSPoint) -> NSPoint {
+        guard let screen = NSScreen.main else { return origin }
+        let visible = screen.visibleFrame
+        let size = panel.frame.size
+        return NSPoint(
+            x: max(visible.minX, min(origin.x, visible.maxX - size.width)),
+            y: max(visible.minY, min(origin.y, visible.maxY - size.height)))
+    }
+
     // MARK: - NSWindowDelegate
 
     func windowDidMove(_ notification: Notification) {
         saveOrigin()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        saveOrigin()
+        // Reflect the manual resize back into the model so Settings shows the live size.
+        let newWidth = Double(panel.frame.width)
+        let newHeight = Double(panel.frame.height) - Double(headerHeight)
+        if abs(newWidth - app.width) > 0.5 || abs(newHeight - app.height) > 0.5 {
+            app.width = newWidth
+            app.height = newHeight
+            onAppChanged?(app)
+        }
     }
 
     func windowDidResignKey(_ notification: Notification) {

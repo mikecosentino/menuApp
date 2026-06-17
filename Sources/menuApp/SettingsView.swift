@@ -102,12 +102,13 @@ struct SettingsView: View {
 /// Editor form for a single menu app.
 struct MenuAppEditor: View {
     @Binding var app: MenuApp
+    @State private var symbolQuery = ""
 
-    private let symbolChoices = [
-        "globe", "magnifyingglass", "envelope", "message", "bird", "music.note",
-        "play.rectangle", "cart", "newspaper", "calendar", "checklist", "bubble.left",
-        "photo", "bookmark", "house", "star", "bolt", "cloud"
-    ]
+    private var filteredSymbols: [String] {
+        let q = symbolQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return SymbolCatalog.all }
+        return SymbolCatalog.all.filter { $0.contains(q) }
+    }
 
     var body: some View {
         Form {
@@ -117,14 +118,30 @@ struct MenuAppEditor: View {
                     .autocorrectionDisabled()
             }
 
+            Section("User Agent") {
+                Picker("Identify as", selection: $app.userAgentMode) {
+                    ForEach(UserAgentMode.allCases, id: \.self) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                if app.userAgentMode == .custom {
+                    TextField("Custom UA string", text: $app.customUserAgent)
+                        .autocorrectionDisabled()
+                        .font(.system(.caption, design: .monospaced))
+                }
+                Text("Controls how the site sees the window — e.g. Mobile Safari for the phone layout, or a desktop browser for the full site.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Window Size") {
                 HStack {
-                    Stepper(value: $app.width, in: 280...900, step: 10) {
+                    Stepper(value: $app.width, in: 240...1400, step: 10) {
                         Text("Width: \(Int(app.width)) pt")
                     }
                 }
                 HStack {
-                    Stepper(value: $app.height, in: 360...1200, step: 10) {
+                    Stepper(value: $app.height, in: 200...1400, step: 10) {
                         Text("Height: \(Int(app.height)) pt")
                     }
                 }
@@ -133,6 +150,9 @@ struct MenuAppEditor: View {
                     presetButton("Compact", 340, 560)
                     presetButton("Tall", 414, 896)
                 }
+                Text("You can also drag the window's bottom-right corner to resize; the size updates here live.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Appearance") {
@@ -153,12 +173,30 @@ struct MenuAppEditor: View {
                 Toggle("Keep open when it loses focus", isOn: $app.pinnedOpen)
             }
 
-            Section("Menubar Icon") {
-                Text("A monochrome symbol shown in the menubar.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            symbolSection
+        }
+        .formStyle(.grouped)
+        .padding()
+    }
+
+    private var symbolSection: some View {
+        Section("Menubar Icon") {
+            HStack {
+                Image(systemName: SymbolCatalog.isValid(app.symbolName) ? app.symbolName : "globe")
+                    .font(.system(size: 16))
+                    .frame(width: 24)
+                TextField("Search symbols (or type an exact SF Symbol name)", text: $symbolQuery)
+                    .textFieldStyle(.roundedBorder)
+                if SymbolCatalog.isValid(symbolQuery) && !filteredSymbols.contains(symbolQuery) {
+                    Button("Use “\(symbolQuery)”") { app.symbolName = symbolQuery }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+            }
+
+            ScrollView {
                 LazyVGrid(columns: Array(repeating: GridItem(.fixed(34)), count: 9), spacing: 8) {
-                    ForEach(symbolChoices, id: \.self) { symbol in
+                    ForEach(filteredSymbols, id: \.self) { symbol in
                         Button {
                             app.symbolName = symbol
                         } label: {
@@ -168,12 +206,19 @@ struct MenuAppEditor: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 6))
                         }
                         .buttonStyle(.borderless)
+                        .help(symbol)
                     }
                 }
+                .padding(.vertical, 4)
+            }
+            .frame(height: 150)
+
+            if filteredSymbols.isEmpty {
+                Text("No matches. If you know the exact SF Symbol name, type it above and click “Use”.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .padding()
     }
 
     private func presetButton(_ title: String, _ w: Double, _ h: Double) -> some View {
