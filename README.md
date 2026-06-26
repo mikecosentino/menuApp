@@ -1,8 +1,8 @@
 # menuApp
 
-Pin websites to your macOS menubar. Click an icon and an iPhone-sized window drops
-down showing the **mobile** version of that site. Drag it anywhere; it remembers
-where you put it.
+Pin websites to your macOS menubar. Click an icon and a window drops down showing
+that site — mobile by default, but the user agent is configurable per app. Drag it
+anywhere and resize it to taste; it remembers both the size and where you put it.
 
 ## Build & run
 
@@ -24,9 +24,12 @@ Requires macOS 13+ and the Swift toolchain (ships with Xcode / Command Line Tool
 
 - **Click** a site's menubar icon → toggles its window open/closed under the icon.
 - **Drag** the window's top bar to reposition it anywhere; the spot is remembered.
+- **Resize** by dragging the grip in the bottom-right corner. The new size persists
+  and is reflected live in the Settings width/height fields.
 - **Pin** (📌 in the window header) keeps the window open when it loses focus.
   Unpinned windows close when you click away, like a popover.
-- **Reload** (↻) and **close** (✕) live in the header too.
+- The header splits its controls: **close** (✕), **back** (‹), **home** (⌂), and
+  **reload** (↻) sit on the left; **always-on-top** (⬆) and **pin** (📌) sit on the right.
 - **Right-click** a site icon for Open / Reload / Edit / Remove / Settings / Quit.
 - The **⊞ home icon** menu has *Add Menu App…*, *Settings…*, and *Quit*.
 
@@ -35,9 +38,14 @@ Requires macOS 13+ and the Swift toolchain (ships with Xcode / Command Line Tool
 Open **Settings…** from any menu to add, edit, and remove menuApps. Per-site you can set:
 
 - **Name** and **URL** (scheme optional — `example.com` becomes `https://example.com`)
-- **Window size** — Width/Height steppers plus iPhone / Compact / Tall presets
+- **Window size** — Width/Height steppers plus iPhone / Compact / Tall presets.
+  Manually resizing the window updates these fields live.
+- **User Agent** — Mobile Safari (default), Desktop Safari, Desktop Chrome,
+  Desktop Edge, or a Custom string. Lets you load sites that gate by browser
+  (e.g. Slack) or force the desktop layout.
 - **Keep open when it loses focus** (pin behavior)
-- **Fallback icon** — an SF Symbol used when a site's favicon can't be fetched
+- **Fallback icon** — pick from a searchable catalog of ~130 SF Symbols, or type any
+  exact SF Symbol name. Used as the menubar icon when a site's favicon can't be fetched.
 
 Favicons are fetched automatically and used as the menubar icon when available.
 
@@ -46,10 +54,11 @@ Favicons are fetched automatically and used as the menubar icon when available.
 | Concern | Implementation |
 |---|---|
 | Menubar icons | One `NSStatusItem` per site + a "home" item (`StatusItemController`) |
-| Web window | Borderless, floating `NSPanel` with a draggable header + `WKWebView` (`WebWindowController`) |
-| Mobile rendering | `WKWebView.customUserAgent` set to an iPhone Safari UA |
-| Settings UI | SwiftUI (`SettingsView`) hosted in an `NSWindow` |
-| Persistence | Sites → `~/Library/Application Support/menuApp/apps.json`; window positions → `UserDefaults` |
+| Web window | Borderless, resizable, floating `NSPanel` with a draggable header + `WKWebView` (`WebWindowController`) |
+| Resizing | Bottom-right `ResizeGripView`; the resulting size is written back to the model |
+| User agent | `WKWebView.customUserAgent` driven by the per-app `UserAgentMode` (Mobile/Desktop Safari, Chrome, Edge, Custom) |
+| Settings UI | SwiftUI (`SettingsView`) hosted in an `NSWindow`; icon picker over `SymbolCatalog` |
+| Persistence | Sites (incl. size + UA) → `~/Library/Application Support/menuApp/apps.json`; window positions → `UserDefaults` |
 | No Dock icon | `LSUIElement` + `NSApp.setActivationPolicy(.accessory)` |
 
 Login sessions persist via the default `WKWebsiteDataStore`, so signed-in sites stay
@@ -82,9 +91,11 @@ Sources/menuApp/
   MenuAppModel.swift          the MenuApp model
   MenuAppStore.swift          JSON persistence + Combine publishing
   StatusItemController.swift  one menubar item + its window
-  WebWindowController.swift   the draggable iPhone-sized web panel
+  WebWindowController.swift   the draggable, resizable web panel
   DragHandleView.swift        header that drags the window
+  ResizeGripView.swift        bottom-right corner resize handle
   IconLoader.swift            favicon fetch + letter/symbol fallback
+  SymbolCatalog.swift         the searchable SF Symbol catalog
   SettingsView.swift          SwiftUI settings
   SettingsWindowController.swift  hosts settings in a window
 build_app.sh                  packages everything into menuApp.app

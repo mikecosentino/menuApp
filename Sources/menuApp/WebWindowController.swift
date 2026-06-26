@@ -73,45 +73,52 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
             return b
         }
 
+        // Right-aligned button row; index 0 is the rightmost button.
+        func rightButton(at index: Int, symbol: String, action: Selector, tip: String) -> NSButton {
+            let b = makeButton(symbol: symbol, action: action)
+            b.frame = NSRect(x: size.width - 26 - CGFloat(index) * 24, y: (headerHeight - 18) / 2, width: 18, height: 18)
+            b.autoresizingMask = [.minXMargin]
+            b.toolTip = tip
+            header.addSubview(b)
+            return b
+        }
+
+        // Close (leftmost — macOS-style left placement)
+        _ = leftButton(at: 0, symbol: "xmark", action: #selector(hide), tip: "Close")
+
         // Back
-        let back = leftButton(at: 0, symbol: "chevron.backward", action: #selector(goBack), tip: "Back")
+        let back = leftButton(at: 1, symbol: "chevron.backward", action: #selector(goBack), tip: "Back")
         back.isEnabled = false
         self.backButton = back
 
         // Home (loads the app's configured URL)
-        _ = leftButton(at: 1, symbol: "house", action: #selector(goHome), tip: "Home")
+        _ = leftButton(at: 2, symbol: "house", action: #selector(goHome), tip: "Home")
 
         // Reload
-        _ = leftButton(at: 2, symbol: "arrow.clockwise", action: #selector(reload), tip: "Reload")
+        _ = leftButton(at: 3, symbol: "arrow.clockwise", action: #selector(reload), tip: "Reload")
 
-        // Always-on-top toggle
-        let onTop = leftButton(
-            at: 3,
-            symbol: app.alwaysOnTop ? "arrow.up.square.fill" : "arrow.up.square",
-            action: #selector(toggleAlwaysOnTop(_:)),
-            tip: "Keep window above other windows")
-        self.alwaysOnTopButton = onTop
-
-        // Pin toggle
-        let pin = leftButton(
-            at: 4,
+        // Pin toggle (rightmost)
+        let pin = rightButton(
+            at: 0,
             symbol: app.pinnedOpen ? "pin.fill" : "pin",
             action: #selector(togglePin(_:)),
             tip: "Keep window open when it loses focus")
         self.pinButton = pin
 
-        // Close button (right)
-        let close = makeButton(symbol: "xmark", action: #selector(hide))
-        close.frame = NSRect(x: size.width - 26, y: (headerHeight - 18) / 2, width: 18, height: 18)
-        close.autoresizingMask = [.minXMargin]
-        header.addSubview(close)
+        // Always-on-top toggle (left of pin)
+        let onTop = rightButton(
+            at: 1,
+            symbol: app.alwaysOnTop ? "arrow.up.square.fill" : "arrow.up.square",
+            action: #selector(toggleAlwaysOnTop(_:)),
+            tip: "Keep window above other windows")
+        self.alwaysOnTopButton = onTop
 
-        // Title (center)
+        // Title (centered in the space between the left and right button rows)
         titleLabel = NSTextField(labelWithString: app.name)
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.alignment = .center
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.frame = NSRect(x: 132, y: (headerHeight - 16) / 2, width: size.width - 164, height: 16)
+        titleLabel.frame = NSRect(x: 104, y: (headerHeight - 16) / 2, width: size.width - 160, height: 16)
         titleLabel.autoresizingMask = [.width]
         header.addSubview(titleLabel)
     }
