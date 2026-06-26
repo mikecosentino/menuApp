@@ -59,6 +59,10 @@ struct MenuApp: Identifiable, Codable, Equatable {
     var userAgentMode: UserAgentMode
     /// Custom user-agent string used when `userAgentMode == .custom`.
     var customUserAgent: String
+    /// CSS selectors the user has chosen to hide on this app's site.
+    /// Applied as `display:none !important` on every load (Safari-style
+    /// "Hide Distracting Items"), and persisted so they survive reopening.
+    var hiddenSelectors: [String]
 
     init(
         id: UUID = UUID(),
@@ -71,7 +75,8 @@ struct MenuApp: Identifiable, Codable, Equatable {
         opacity: Double = 1.0,
         alwaysOnTop: Bool = false,
         userAgentMode: UserAgentMode = .mobileSafari,
-        customUserAgent: String = ""
+        customUserAgent: String = "",
+        hiddenSelectors: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -84,6 +89,7 @@ struct MenuApp: Identifiable, Codable, Equatable {
         self.alwaysOnTop = alwaysOnTop
         self.userAgentMode = userAgentMode
         self.customUserAgent = customUserAgent
+        self.hiddenSelectors = hiddenSelectors
     }
 
     /// Custom decoding so saved files written by older/newer builds still load
@@ -101,6 +107,7 @@ struct MenuApp: Identifiable, Codable, Equatable {
         alwaysOnTop = try c.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? false
         userAgentMode = try c.decodeIfPresent(UserAgentMode.self, forKey: .userAgentMode) ?? .mobileSafari
         customUserAgent = try c.decodeIfPresent(String.self, forKey: .customUserAgent) ?? ""
+        hiddenSelectors = try c.decodeIfPresent([String].self, forKey: .hiddenSelectors) ?? []
     }
 
     /// A normalized URL, adding https:// when the user omitted a scheme.

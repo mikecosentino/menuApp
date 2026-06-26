@@ -3,6 +3,8 @@
 Pin websites to your macOS menubar. Click an icon and a window drops down showing
 that site — mobile by default, but the user agent is configurable per app. Drag it
 anywhere and resize it to taste; it remembers both the size and where you put it.
+Strip away page clutter with Safari-style click-to-hide, or pop into a one-click
+theater mode that isolates and enlarges the video.
 
 ## Build & run
 
@@ -29,8 +31,19 @@ Requires macOS 13+ and the Swift toolchain (ships with Xcode / Command Line Tool
 - **Pin** (📌 in the window header) keeps the window open when it loses focus.
   Unpinned windows close when you click away, like a popover.
 - The header splits its controls: **close** (✕), **back** (‹), **home** (⌂), and
-  **reload** (↻) sit on the left; **always-on-top** (⬆) and **pin** (📌) sit on the right.
-- **Right-click** a site icon for Open / Reload / Edit / Remove / Settings / Quit.
+  **reload** (↻) sit on the left; **theater** (▶▭), **hide elements** (eye-slash),
+  **always-on-top** (⬆) and **pin** (📌) sit on the right.
+- **Hide distracting items** (eye-slash icon) — Safari-style click-to-hide. Toggle it
+  on, then click any element (sidebars, comments, ads, banners) to remove it; press
+  **Esc** to finish. Hidden elements are saved **per site** and stay hidden every time
+  you reopen it. Recover from the menubar icon's right-click menu: *Undo Last Hide*
+  steps back one element at a time, *Show All Hidden Items* clears them all.
+- **Theater mode** (play-rectangle icon) — finds the most prominent video on the page
+  (or a video-style embed), hides everything else, and pins the video to fill the whole
+  window with letterboxing so nothing overlaps it. Toggle off to restore the page;
+  playback isn't interrupted. Great for watching a stream without the surrounding clutter.
+- **Right-click** a site icon for Open / Reload / Undo Last Hide / Show All Hidden Items
+  / Edit / Remove / Settings / Quit.
 - The **⊞ home icon** menu has *Add Menu App…*, *Settings…*, and *Quit*.
 
 ## Settings
@@ -57,6 +70,7 @@ Favicons are fetched automatically and used as the menubar icon when available.
 | Web window | Borderless, resizable, floating `NSPanel` with a draggable header + `WKWebView` (`WebWindowController`) |
 | Resizing | Bottom-right `ResizeGripView`; the resulting size is written back to the model |
 | User agent | `WKWebView.customUserAgent` driven by the per-app `UserAgentMode` (Mobile/Desktop Safari, Chrome, Edge, Custom) |
+| Hide / theater | `WKUserScript`s injected at document start: an engine applies saved selectors as `display:none` (with a `MutationObserver` to survive SPA re-renders), a picker generates a stable selector per click and posts it back via `WKScriptMessageHandler`, and theater mode pins the largest `<video>` to fill the window. Selectors persist in `hiddenSelectors` on the model |
 | Settings UI | SwiftUI (`SettingsView`) hosted in an `NSWindow`; icon picker over `SymbolCatalog` |
 | Persistence | Sites (incl. size + UA) → `~/Library/Application Support/menuApp/apps.json`; window positions → `UserDefaults` |
 | No Dock icon | `LSUIElement` + `NSApp.setActivationPolicy(.accessory)` |
@@ -77,6 +91,10 @@ signed in between launches.
 - Some sites with enterprise SSO / device-trust (e.g. O365 Conditional Access)
   won't sign in inside an embedded `WKWebView` — that's a platform restriction,
   not a bug.
+- **Hide / theater can't reach inside cross-origin iframes.** You can hide or
+  enlarge the iframe element itself, but not the elements within a third-party
+  embed — same-origin policy, same as Safari. Saved selectors that no longer match
+  after a site redesign simply do nothing (use *Show All Hidden Items* to reset).
 
 ## License
 

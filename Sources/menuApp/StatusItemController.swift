@@ -50,6 +50,7 @@ final class StatusItemController: NSObject {
 
     private func showMenu() {
         let menu = NSMenu()
+        menu.autoenablesItems = false // honor explicit isEnabled (e.g. Show Hidden Items)
         menu.addItem(withTitle: app.name, action: nil, keyEquivalent: "").isEnabled = false
         menu.addItem(.separator())
 
@@ -60,6 +61,16 @@ final class StatusItemController: NSObject {
         let reloadItem = NSMenuItem(title: "Reload", action: #selector(reload), keyEquivalent: "r")
         reloadItem.target = self
         menu.addItem(reloadItem)
+
+        let undoHideItem = NSMenuItem(title: "Undo Last Hide", action: #selector(undoHide), keyEquivalent: "z")
+        undoHideItem.target = self
+        undoHideItem.isEnabled = windowController.hasHiddenSelectors
+        menu.addItem(undoHideItem)
+
+        let showHiddenItem = NSMenuItem(title: "Show All Hidden Items", action: #selector(showHidden), keyEquivalent: "")
+        showHiddenItem.target = self
+        showHiddenItem.isEnabled = windowController.hasHiddenSelectors
+        menu.addItem(showHiddenItem)
 
         let editItem = NSMenuItem(title: "Edit…", action: #selector(edit), keyEquivalent: "")
         editItem.target = self
@@ -88,6 +99,8 @@ final class StatusItemController: NSObject {
 
     @objc private func openWindow() { windowController.show(relativeTo: statusItem.button) }
     @objc private func reload() { windowController.reload() }
+    @objc private func undoHide() { windowController.undoLastHide() }
+    @objc private func showHidden() { windowController.clearHiddenSelectors() }
     @objc private func edit() { onEdit?(app) }
     @objc private func remove() { onRemove?(app) }
     @objc private func openSettings() { onOpenSettings?() }
