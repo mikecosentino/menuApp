@@ -80,9 +80,9 @@ signed in between launches.
 
 ## Notes & limitations
 
-- **Build from source** (`./build_app.sh`). The bundle is ad-hoc signed, not
-  notarized — a prebuilt `.app` would trip Gatekeeper's "unidentified developer"
-  warning, but building locally avoids that entirely.
+- **Local builds are ad-hoc signed** (`./build_app.sh`) and fine to run on your own
+  machine. Published releases are Developer ID-signed and notarized (see *Releasing*),
+  so downloads open without Gatekeeper warnings.
 - **App Transport Security is disabled** (`NSAllowsArbitraryLoads`) so non-HTTPS
   sites load. Reasonable for a personal web wrapper; remove it in `build_app.sh`
   if you only ever load HTTPS.
@@ -95,6 +95,43 @@ signed in between launches.
   enlarge the iframe element itself, but not the elements within a third-party
   embed — same-origin policy, same as Safari. Saved selectors that no longer match
   after a site redesign simply do nothing (use *Show All Hidden Items* to reset).
+
+## Releasing
+
+Published releases are universal (Apple Silicon + Intel), Developer ID-signed,
+notarized, and stapled, so a downloaded build opens with no Gatekeeper prompt.
+
+**One-time setup** (requires an Apple Developer account):
+
+1. Create a **Developer ID Application** certificate — Xcode → Settings → Accounts →
+   Manage Certificates → **+** → *Developer ID Application* (or on
+   developer.apple.com → Certificates). Note: only the account holder can create it.
+   Confirm it's installed: `security find-identity -v -p codesigning`.
+2. Store notarization credentials in a keychain profile (an
+   [app-specific password](https://support.apple.com/102654) for your Apple ID):
+
+   ```bash
+   xcrun notarytool store-credentials menuApp-notary \
+     --apple-id "you@example.com" --team-id "YOURTEAMID" --password "app-specific-pw"
+   ```
+
+**Cut a release:**
+
+```bash
+export MENUAPP_SIGN_IDENTITY="Developer ID Application: Your Name (YOURTEAMID)"
+export MENUAPP_NOTARY_PROFILE="menuApp-notary"
+./release.sh 1.1.0 --publish      # build → notarize → staple → zip → GitHub release
+```
+
+`release.sh` writes the version into the bundle, notarizes (waits for Apple),
+staples the ticket, and — with `--publish` — creates the `v1.1.0` tag and uploads
+`menuApp-1.1.0.zip` via `gh`. Omit `--publish` to produce the notarized zip without
+releasing.
+
+## Download
+
+Grab the latest `menuApp-*.zip` from [Releases](../../releases), unzip, and move
+`menuApp.app` to `/Applications`. Notarized builds just open — no right-click dance.
 
 ## License
 
@@ -116,5 +153,6 @@ Sources/menuApp/
   SymbolCatalog.swift         the searchable SF Symbol catalog
   SettingsView.swift          SwiftUI settings
   SettingsWindowController.swift  hosts settings in a window
-build_app.sh                  packages everything into menuApp.app
+build_app.sh                  packages everything into menuApp.app (universal)
+release.sh                    signs + notarizes + staples + publishes a release
 ```

@@ -1,6 +1,7 @@
 # Swift Package Manager / build artifacts
 .build/
 *.app
+*.zip
 
 # Xcode
 *.xcodeproj
