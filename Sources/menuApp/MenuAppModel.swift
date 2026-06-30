@@ -55,6 +55,11 @@ struct MenuApp: Identifiable, Codable, Equatable {
     var opacity: Double
     /// When true, the window floats above other apps' windows.
     var alwaysOnTop: Bool
+    /// When true, all audio playing in this window's web view is muted.
+    var muted: Bool
+    /// When true, the window's toolbar is hidden and only revealed while the
+    /// pointer is near the top edge of the window.
+    var autoHideToolbar: Bool
     /// User-agent preset for the web view.
     var userAgentMode: UserAgentMode
     /// Custom user-agent string used when `userAgentMode == .custom`.
@@ -74,6 +79,8 @@ struct MenuApp: Identifiable, Codable, Equatable {
         pinnedOpen: Bool = false,
         opacity: Double = 1.0,
         alwaysOnTop: Bool = false,
+        muted: Bool = false,
+        autoHideToolbar: Bool = false,
         userAgentMode: UserAgentMode = .mobileSafari,
         customUserAgent: String = "",
         hiddenSelectors: [String] = []
@@ -87,6 +94,8 @@ struct MenuApp: Identifiable, Codable, Equatable {
         self.pinnedOpen = pinnedOpen
         self.opacity = opacity
         self.alwaysOnTop = alwaysOnTop
+        self.muted = muted
+        self.autoHideToolbar = autoHideToolbar
         self.userAgentMode = userAgentMode
         self.customUserAgent = customUserAgent
         self.hiddenSelectors = hiddenSelectors
@@ -105,6 +114,8 @@ struct MenuApp: Identifiable, Codable, Equatable {
         pinnedOpen = try c.decodeIfPresent(Bool.self, forKey: .pinnedOpen) ?? false
         opacity = try c.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         alwaysOnTop = try c.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? false
+        muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false
+        autoHideToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHideToolbar) ?? false
         userAgentMode = try c.decodeIfPresent(UserAgentMode.self, forKey: .userAgentMode) ?? .mobileSafari
         customUserAgent = try c.decodeIfPresent(String.self, forKey: .customUserAgent) ?? ""
         hiddenSelectors = try c.decodeIfPresent([String].self, forKey: .hiddenSelectors) ?? []

@@ -18,7 +18,10 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
 
     private(set) var app: MenuApp
     private var panel: NSPanel!
+    private var container: NSView!
     private var webView: WKWebView!
+    private var headerView: DragHandleView!
+    private var hoverReveal: HoverRevealView?
     private var contentController: WKUserContentController!
     private var titleLabel: NSTextField!
     private var loadedURL: URL?
@@ -68,9 +71,13 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         container.layer?.masksToBounds = true
         container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         panel.contentView = container
+        self.container = container
 
-        buildHeader(in: container, size: contentRect.size)
+        // Web view first so the header (and its hover-reveal overlay) sit above it
+        // when the toolbar is configured to auto-hide over the page.
         buildWebView(in: container, size: size)
+        buildHeader(in: container, size: contentRect.size)
+        applyToolbarMode()
     }
 
     private func buildHeader(in container: NSView, size: NSSize) {
@@ -80,6 +87,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         header.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         header.autoresizingMask = [.width, .minYMargin]
         container.addSubview(header)
+        self.headerView = header
 
         // Left-aligned button row, in order.
         func leftButton(at index: Int, symbol: String, action: Selector, tip: String) -> NSButton {
@@ -147,12 +155,20 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
             tip: "Theater mode — isolate the video and expand it to full width")
         self.theaterButton = theater
 
+        // Mute toggle (left of theater)
+        let mute = rightButton(
+            at: 4,
+            symbol: app.muted ? "speaker.slash.fill" : "speaker.wave.2",
+            action: #selector(toggleMute(_:)),
+            tip: "Mute this window's audio")
+        self.muteButton = mute
+
         // Title (centered in the space between the left and right button rows)
         titleLabel = NSTextField(labelWithString: app.name)
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.alignment = .center
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.frame = NSRect(x: 104, y: (headerHeight - 16) / 2, width: size.width - 208, height: 16)
+        titleLabel.frame = NSRect(x: 104, y: (headerHeight - 16) / 2, width: size.width - 232, height: 16)
         titleLabel.autoresizingMask = [.width]
         header.addSubview(titleLabel)
     }
@@ -164,6 +180,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     private var pickActive = false
     private var theaterButton: NSButton?
     private var theaterActive = false
+    private var muteButton: NSButton?
 
     private func buildWebView(in container: NSView, size: NSSize) {
         let config = WKWebViewConfiguration()
@@ -179,6 +196,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         let frame = NSRect(x: 0, y: 0, width: size.width, height: size.height)
         webView = WKWebView(frame: frame, configuration: config)
         webView.customUserAgent = app.resolvedUserAgent
+        applyMuted(app.muted)
         webView.autoresizingMask = [.width, .height]
         webView.uiDelegate = self
         webView.navigationDelegate = self
@@ -264,6 +282,27 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         onAppChanged?(app)
     }
 
+    @objc private func toggleMute(_ sender: NSButton) {
+        app.muted.toggle()
+        sender.image = NSImage(
+            systemSymbolName: app.muted ? "speaker.slash.fill" : "speaker.wave.2",
+            accessibilityDescription: nil)
+        applyMuted(app.muted)
+        onAppChanged?(app)
+    }
+
+    /// Mutes or unmutes all audio in the web view at the page level (covers both
+    /// HTML media elements and the Web Audio API). Uses WebKit's `_setPageMuted:`
+    /// with the `_WKMediaAudioMuted` (1) bit; no-ops if the runtime lacks it.
+    private func applyMuted(_ muted: Bool) {
+        let sel = NSSelectorFromString("_setPageMuted:")
+        guard webView.responds(to: sel) else { return }
+        typealias MuteFn = @convention(c) (NSObject, Selector, UInt) -> Void
+        let imp = webView.method(for: sel)
+        let fn = unsafeBitCast(imp, to: MuteFn.self)
+        fn(webView, sel, muted ? 1 : 0)
+    }
+
     /// Called when the user changes a setting from the window chrome, so the store can persist it.
     var onAppChanged: ((MenuApp) -> Void)?
 
@@ -273,16 +312,23 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         let sizeChanged = newApp.width != app.width || newApp.height != app.height
         let uaChanged = newApp.resolvedUserAgent != app.resolvedUserAgent
         let selectorsChanged = newApp.hiddenSelectors != app.hiddenSelectors
+        let mutedChanged = newApp.muted != app.muted
+        let toolbarModeChanged = newApp.autoHideToolbar != app.autoHideToolbar
         let wasLocalEdit = isApplyingLocalEdit
         isApplyingLocalEdit = false
         app = newApp
         titleLabel.stringValue = newApp.name
+        muteButton?.image = NSImage(
+            systemSymbolName: newApp.muted ? "speaker.slash.fill" : "speaker.wave.2",
+            accessibilityDescription: nil)
+        if mutedChanged { applyMuted(newApp.muted) }
         pinButton?.image = NSImage(
             systemSymbolName: newApp.pinnedOpen ? "pin.fill" : "pin", accessibilityDescription: nil)
         alwaysOnTopButton?.image = NSImage(
             systemSymbolName: newApp.alwaysOnTop ? "arrow.up.square.fill" : "arrow.up.square",
             accessibilityDescription: nil)
         if sizeChanged { resizeWindow() }
+        if toolbarModeChanged { applyToolbarMode() }
         panel.alphaValue = CGFloat(newApp.opacity)
         panel.level = newApp.alwaysOnTop ? .floating : .normal
         if uaChanged { webView.customUserAgent = newApp.resolvedUserAgent }
@@ -301,6 +347,71 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     func close() {
         panel.orderOut(nil)
         panel.delegate = nil
+    }
+
+    // MARK: - Toolbar auto-hide
+
+    private var toolbarShown = true
+
+    /// Lays out the web view and header for the current `autoHideToolbar` setting.
+    /// When auto-hide is on the web view fills the whole window, the header floats
+    /// on top (hidden until hovered), and a pass-through strip at the top edge
+    /// detects the pointer to reveal it.
+    private func applyToolbarMode() {
+        let b = container.bounds
+        headerView.frame = NSRect(x: 0, y: b.height - headerHeight, width: b.width, height: headerHeight)
+
+        if app.autoHideToolbar {
+            webView.frame = b
+            let stripFrame = NSRect(x: 0, y: b.height - headerHeight, width: b.width, height: headerHeight)
+            if let strip = hoverReveal {
+                strip.frame = stripFrame
+            } else {
+                let strip = HoverRevealView(frame: stripFrame)
+                strip.autoresizingMask = [.width, .minYMargin]
+                strip.onHover = { [weak self] inside in
+                    guard let self, self.app.autoHideToolbar else { return }
+                    if inside { self.showToolbar() } else { self.hideToolbar() }
+                }
+                container.addSubview(strip, positioned: .above, relativeTo: webView)
+                hoverReveal = strip
+            }
+            // header above the strip so its buttons stay clickable.
+            container.addSubview(headerView, positioned: .above, relativeTo: hoverReveal)
+            toolbarShown = false
+            headerView.alphaValue = 0
+            headerView.isHidden = true
+        } else {
+            hoverReveal?.removeFromSuperview()
+            hoverReveal = nil
+            webView.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height - headerHeight)
+            container.addSubview(headerView, positioned: .above, relativeTo: webView)
+            toolbarShown = true
+            headerView.isHidden = false
+            headerView.alphaValue = 1
+        }
+    }
+
+    private func showToolbar() {
+        guard !toolbarShown else { return }
+        toolbarShown = true
+        headerView.isHidden = false
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            headerView.animator().alphaValue = 1
+        }
+    }
+
+    private func hideToolbar() {
+        guard toolbarShown else { return }
+        toolbarShown = false
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.15
+            headerView.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            guard let self, !self.toolbarShown else { return }
+            self.headerView.isHidden = true
+        })
     }
 
     // MARK: - Loading
@@ -417,6 +528,8 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         backButton?.isEnabled = webView.canGoBack
+        // Page mute resets on a full navigation; reassert the saved preference.
+        applyMuted(app.muted)
         // The picker and theater scripts re-inject dormant on each load, so the
         // header toggles should reflect "off" again for the new page.
         setPickButtonState(active: false)
@@ -741,14 +854,31 @@ extension WebWindowController {
     })();
     """
 
-    /// Theater mode. Finds the most prominent <video> (or a video-like iframe),
-    /// hides everything that isn't on the path from that element up to <body>, and
-    /// expands the kept chain + video to full width. Fully reversible via setActive(false).
+    /// Theater mode. Picks the page's player element, lifts it out to be a direct
+    /// child of <body>, and pins it to fill the window — so it escapes the site's
+    /// own wrapper/overlay stacking contexts (e.g. YouTube's cinematic full-bleed
+    /// container, which paints over a merely-pinned <video>). Sites with a known
+    /// player container are handled via `SITES`; everything else falls back to the
+    /// most prominent <video> (controls forced on) or a video-like iframe. Every
+    /// mutation is recorded and undone in reverse by setActive(false).
     static let theaterSource = """
     (function () {
       if (window.__menuAppTheater) return;
       var STYLE_ID = "__menuapp-theater-style";
-      var ATTR = "data-menuapp-theater";
+
+      // Per-site player containers. Reparenting one of these to <body> is far more
+      // robust than pinning the bare <video>, because it keeps the site's native
+      // controls and steps outside the wrappers that would otherwise overlay it.
+      var SITES = [
+        { host: /(^|\\.)youtube(-nocookie)?\\.com$|(^|\\.)youtu\\.be$/, sel: "#movie_player" }
+      ];
+
+      var undo = [];
+      function pushUndo(fn) { undo.push(fn); }
+      function runUndo() {
+        for (var i = undo.length - 1; i >= 0; i--) { try { undo[i](); } catch (e) {} }
+        undo = [];
+      }
 
       function post(body) {
         try { window.webkit.messageHandlers.menuAppHide.postMessage(body); } catch (e) {}
@@ -756,6 +886,15 @@ extension WebWindowController {
       function area(el) {
         var r = el.getBoundingClientRect();
         return r.width * r.height;
+      }
+      function siteTarget() {
+        for (var i = 0; i < SITES.length; i++) {
+          if (SITES[i].host.test(location.hostname)) {
+            var el = document.querySelector(SITES[i].sel);
+            if (el) return el;
+          }
+        }
+        return null;
       }
       function pickVideo() {
         var best = null, bestArea = 0;
@@ -777,71 +916,102 @@ extension WebWindowController {
         return bestFrame;
       }
       function ensureStyle() {
-        var el = document.getElementById(STYLE_ID);
-        if (!el) {
-          el = document.createElement("style");
-          el.id = STYLE_ID;
-          (document.head || document.documentElement).appendChild(el);
-        }
+        var el = document.createElement("style");
+        el.id = STYLE_ID;
+        (document.head || document.documentElement).appendChild(el);
         el.textContent =
-          "[" + ATTR + "=hide]{display:none !important;}" +
-          // Pin the video to fill the whole window so nothing (overlays, gradients,
-          // control layers left behind by the player) can sit on top of it.
-          "[" + ATTR + "=video]{position:fixed !important;top:0 !important;left:0 !important;" +
-            "width:100% !important;height:100% !important;max-width:100% !important;" +
-            "max-height:100% !important;margin:0 !important;padding:0 !important;" +
-            "background:#000 !important;z-index:2147483646 !important;}" +
-          // Letterbox a real <video> so the whole frame is visible; an <iframe>
-          // embed can't be object-fit, so it just fills the window.
-          "video[" + ATTR + "=video]{object-fit:contain !important;}" +
-          "html[" + ATTR + "-root]{background:#000 !important;}" +
-          "html[" + ATTR + "-root] body{background:#000 !important;margin:0 !important;overflow:hidden !important;}";
+          "html.__menuapp-theater, html.__menuapp-theater body{" +
+            "background:#000 !important;margin:0 !important;overflow:hidden !important;}" +
+          ".__menuapp-stage{position:fixed !important;inset:0 !important;top:0 !important;" +
+            "left:0 !important;width:100vw !important;height:100vh !important;" +
+            "max-width:100vw !important;max-height:100vh !important;margin:0 !important;" +
+            "padding:0 !important;background:#000 !important;z-index:2147483647 !important;}" +
+          // Letterbox a real <video> so the whole frame stays visible.
+          "video.__menuapp-stage{object-fit:contain !important;}";
+        pushUndo(function () { if (el.parentNode) el.parentNode.removeChild(el); });
       }
-      function clear() {
-        var marked = document.querySelectorAll("[" + ATTR + "]");
-        for (var i = 0; i < marked.length; i++) marked[i].removeAttribute(ATTR);
-        document.documentElement.removeAttribute(ATTR + "-root");
-        var st = document.getElementById(STYLE_ID);
-        if (st && st.parentNode) st.parentNode.removeChild(st);
+      // Move `el` to be the last child of <body>, remembering where it came from so
+      // it can be put back exactly. For <video> we also force native controls on.
+      function reparentToBody(el, isVideo) {
+        var ph = document.createComment("menuapp-theater");
+        el.parentNode.insertBefore(ph, el);
+        var prevStyle = el.getAttribute("style");
+        var prevControls = isVideo ? el.controls : null;
+        document.body.appendChild(el);
+        el.classList.add("__menuapp-stage");
+        if (isVideo) { try { el.controls = true; } catch (e) {} }
+        pushUndo(function () {
+          el.classList.remove("__menuapp-stage");
+          if (prevStyle === null) el.removeAttribute("style"); else el.setAttribute("style", prevStyle);
+          if (isVideo) { try { el.controls = prevControls; } catch (e) {} }
+          if (ph.parentNode) { ph.parentNode.insertBefore(el, ph); ph.parentNode.removeChild(ph); }
+        });
+      }
+      function hideBodyChildrenExcept(keep) {
+        var kids = Array.prototype.slice.call(document.body.children);
+        kids.forEach(function (k) {
+          if (k === keep) return;
+          var pv = k.style.getPropertyValue("display");
+          var pp = k.style.getPropertyPriority("display");
+          k.style.setProperty("display", "none", "important");
+          pushUndo(function () {
+            if (pv) k.style.setProperty("display", pv, pp); else k.style.removeProperty("display");
+          });
+        });
       }
       function apply() {
-        var video = pickVideo();
-        if (!video) return false;
-        clear();
-        var path = [], node = video;
-        while (node && node !== document.body && node.nodeType === 1) {
-          path.push(node);
-          node = node.parentElement;
+        var target = siteTarget();
+        var isVideo = false;
+        if (!target) {
+          target = pickVideo();
+          isVideo = !!(target && target.tagName === "VIDEO");
         }
-        var inPath = function (el) { return path.indexOf(el) !== -1; };
-        video.setAttribute(ATTR, "video");
-        for (var i = 0; i < path.length; i++) {
-          if (path[i] !== video) path[i].setAttribute(ATTR, "keep");
-        }
-        for (var j = 0; j < path.length; j++) {
-          var parent = path[j].parentElement;
-          if (!parent) continue;
-          var kids = parent.children;
-          for (var k = 0; k < kids.length; k++) {
-            var child = kids[k];
-            if (inPath(child) || child.id === STYLE_ID) continue;
-            child.setAttribute(ATTR, "hide");
-          }
-        }
-        document.documentElement.setAttribute(ATTR + "-root", "");
+        if (!target) return false;
+        document.documentElement.classList.add("__menuapp-theater");
+        pushUndo(function () { document.documentElement.classList.remove("__menuapp-theater"); });
         ensureStyle();
+        reparentToBody(target, isVideo);
+        hideBodyChildrenExcept(target);
+        // Nudge the site player to relayout into its new full-window box.
+        try { window.dispatchEvent(new Event("resize")); } catch (e) {}
         return true;
       }
       window.__menuAppTheater = {
         setActive: function (on) {
           if (on) {
+            if (undo.length) { post({ theater: true }); return; }
             post({ theater: !!apply() });
           } else {
-            clear();
+            runUndo();
+            try { window.dispatchEvent(new Event("resize")); } catch (e) {}
             post({ theater: false });
           }
         }
       };
     })();
     """
+}
+
+/// A transparent strip pinned to the top edge of the window that reports when the
+/// pointer enters or leaves it, used to reveal an auto-hidden toolbar. It never
+/// participates in hit-testing (`hitTest` returns nil), so clicks and scrolls pass
+/// straight through to the web view beneath it; tracking-area enter/exit events are
+/// geometry-based and still fire regardless.
+final class HoverRevealView: NSView {
+    var onHover: ((Bool) -> Void)?
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
 }

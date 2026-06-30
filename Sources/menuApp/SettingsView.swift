@@ -171,6 +171,10 @@ struct MenuAppEditor: View {
             Section("Behavior") {
                 Toggle("Always on top", isOn: $app.alwaysOnTop)
                 Toggle("Keep open when it loses focus", isOn: $app.pinnedOpen)
+                Toggle("Auto-hide toolbar", isOn: $app.autoHideToolbar)
+                Text("Hides the window's toolbar to maximize the page; move the pointer to the top edge of the window to reveal it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             symbolSection
