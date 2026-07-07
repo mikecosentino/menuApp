@@ -175,6 +175,10 @@ struct MenuAppEditor: View {
                 Text("Hides the window's toolbar to maximize the page; move the pointer to the top edge of the window to reveal it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Toggle("Fit window to video in theater mode", isOn: $app.fitTheaterToVideo)
+                Text("Entering theater mode resizes the window to the video's shape so there are no bars above or below it, and keeps that aspect ratio while you resize.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             symbolSection

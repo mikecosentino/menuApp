@@ -3,8 +3,10 @@
 Pin websites to your macOS menubar. Click an icon and a window drops down showing
 that site — mobile by default, but the user agent is configurable per app. Drag it
 anywhere and resize it to taste; it remembers both the size and where you put it.
-Strip away page clutter with Safari-style click-to-hide, or pop into a one-click
-theater mode that isolates and enlarges the video.
+Strip away page clutter with Safari-style click-to-hide, mute a window's audio, or
+pop into a site-aware theater mode that isolates the video and fits the window to it.
+Optionally auto-hide the toolbar for a chromeless window, and drive it all from the
+keyboard.
 
 ## Build & run
 
@@ -31,17 +33,26 @@ Requires macOS 13+ and the Swift toolchain (ships with Xcode / Command Line Tool
 - **Pin** (📌 in the window header) keeps the window open when it loses focus.
   Unpinned windows close when you click away, like a popover.
 - The header splits its controls: **close** (✕), **back** (‹), **home** (⌂), and
-  **reload** (↻) sit on the left; **theater** (▶▭), **hide elements** (eye-slash),
-  **always-on-top** (⬆) and **pin** (📌) sit on the right.
+  **reload** (↻) sit on the left; **mute** (🔈), **theater** (▶▭), **hide elements**
+  (eye-slash), **always-on-top** (⬆) and **pin** (📌) sit on the right.
+- **Keyboard shortcuts** act on the focused window: **⌘T** theater, **⇧⌘M** mute,
+  **⌘R** reload, **⌘W** close.
+- **Mute** (speaker icon, ⇧⌘M) — silences that window's audio at the page level
+  (covers HTML media and Web Audio). Remembered per site and reasserted across
+  page navigations.
 - **Hide distracting items** (eye-slash icon) — Safari-style click-to-hide. Toggle it
   on, then click any element (sidebars, comments, ads, banners) to remove it; press
   **Esc** to finish. Hidden elements are saved **per site** and stay hidden every time
   you reopen it. Recover from the menubar icon's right-click menu: *Undo Last Hide*
   steps back one element at a time, *Show All Hidden Items* clears them all.
-- **Theater mode** (play-rectangle icon) — finds the most prominent video on the page
-  (or a video-style embed), hides everything else, and pins the video to fill the whole
-  window with letterboxing so nothing overlaps it. Toggle off to restore the page;
-  playback isn't interrupted. Great for watching a stream without the surrounding clutter.
+- **Theater mode** (play-rectangle icon, ⌘T) — isolates the video to fill the window
+  and hides everything else. It's **site-aware**: it lifts the site's real player
+  element out of the page (so it escapes wrapper/overlay stacking — e.g. YouTube keeps
+  its native controls), with a generic `<video>`/embed fallback for other sites. With
+  **Fit window to video** on (default), entering theater resizes the window to the
+  video's aspect ratio so there are no bars above or below it, and keeps that ratio
+  while you resize; the size you land on becomes the window's new size. Toggle off to
+  restore the page; playback isn't interrupted.
 - **Right-click** a site icon for Open / Reload / Undo Last Hide / Show All Hidden Items
   / Edit / Remove / Settings / Quit.
 - The **⊞ home icon** menu has *Add Menu App…*, *Settings…*, and *Quit*.
@@ -56,7 +67,10 @@ Open **Settings…** from any menu to add, edit, and remove menuApps. Per-site y
 - **User Agent** — Mobile Safari (default), Desktop Safari, Desktop Chrome,
   Desktop Edge, or a Custom string. Lets you load sites that gate by browser
   (e.g. Slack) or force the desktop layout.
-- **Keep open when it loses focus** (pin behavior)
+- **Always on top** and **Keep open when it loses focus** (pin behavior)
+- **Auto-hide toolbar** — hides the window's toolbar to maximize the page; move the
+  pointer to the top edge to reveal it.
+- **Fit window to video in theater mode** (default on) — see *Theater mode* above.
 - **Fallback icon** — pick from a searchable catalog of ~130 SF Symbols, or type any
   exact SF Symbol name. Used as the menubar icon when a site's favicon can't be fetched.
 
@@ -68,9 +82,12 @@ Favicons are fetched automatically and used as the menubar icon when available.
 |---|---|
 | Menubar icons | One `NSStatusItem` per site + a "home" item (`StatusItemController`) |
 | Web window | Borderless, resizable, floating `NSPanel` with a draggable header + `WKWebView` (`WebWindowController`) |
-| Resizing | Bottom-right `ResizeGripView`; the resulting size is written back to the model |
+| Resizing | Bottom-right `ResizeGripView`; the resulting size is written back to the model. In theater "fit", the grip and `windowWillResize` lock the video's aspect ratio |
 | User agent | `WKWebView.customUserAgent` driven by the per-app `UserAgentMode` (Mobile/Desktop Safari, Chrome, Edge, Custom) |
-| Hide / theater | `WKUserScript`s injected at document start: an engine applies saved selectors as `display:none` (with a `MutationObserver` to survive SPA re-renders), a picker generates a stable selector per click and posts it back via `WKScriptMessageHandler`, and theater mode pins the largest `<video>` to fill the window. Selectors persist in `hiddenSelectors` on the model |
+| Mute | Page-level mute via WebKit's `_setPageMuted:` (covers HTML media + Web Audio), persisted per app and reasserted on navigation |
+| Auto-hide toolbar | Web view fills the window; a click-through `HoverRevealView` strip at the top edge fades the toolbar in/out on hover |
+| Hide / theater | `WKUserScript`s injected at document start: an engine applies saved selectors as `display:none` (with a `MutationObserver` to survive SPA re-renders), a picker generates a stable selector per click and posts it back via `WKScriptMessageHandler`, and theater mode reparents the site's player element to `<body>` (per-site registry + generic fallback) and can fit the window to the reported video aspect ratio. Selectors persist in `hiddenSelectors` on the model |
+| Keyboard shortcuts | A hidden "Window" menu in the app's main menu carries the key equivalents (⌘T/⇧⌘M/⌘R/⌘W); `AppDelegate` routes them to the key `WebWindowController`, gated by `validateMenuItem` |
 | Settings UI | SwiftUI (`SettingsView`) hosted in an `NSWindow`; icon picker over `SymbolCatalog` |
 | Persistence | Sites (incl. size + UA) → `~/Library/Application Support/menuApp/apps.json`; window positions → `UserDefaults` |
 | No Dock icon | `LSUIElement` + `NSApp.setActivationPolicy(.accessory)` |
@@ -95,6 +112,12 @@ signed in between launches.
   enlarge the iframe element itself, but not the elements within a third-party
   embed — same-origin policy, same as Safari. Saved selectors that no longer match
   after a site redesign simply do nothing (use *Show All Hidden Items* to reset).
+- **Theater "fit to video" needs a readable video.** It reads the aspect ratio from
+  the page's `<video>`; cross-origin iframe embeds don't expose their dimensions, so
+  those are isolated but not auto-fit.
+- **Mute uses a private WebKit method** (`_setPageMuted:`, guarded so it no-ops if it
+  ever disappears). It's fine for notarized/direct distribution but rules out the Mac
+  App Store.
 
 ## Releasing
 

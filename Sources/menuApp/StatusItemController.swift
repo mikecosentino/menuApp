@@ -6,6 +6,10 @@ final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private let windowController: WebWindowController
 
+    /// The web window this status item drives (so the AppDelegate can route
+    /// menu-bar shortcuts to it when it's frontmost).
+    var webWindow: WebWindowController { windowController }
+
     /// Callbacks wired up by the AppDelegate.
     var onEdit: ((MenuApp) -> Void)?
     var onRemove: ((MenuApp) -> Void)?

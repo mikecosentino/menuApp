@@ -59,7 +59,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenuItem.submenu = editMenu
         mainMenu.addItem(editMenuItem)
 
+        // Window menu — shortcuts that act on the frontmost web window. Targeting
+        // self (rather than the first responder) lets validateMenuItem gate them on
+        // whether a web window is actually key, and show ✓ state for the toggles.
+        let windowMenuItem = NSMenuItem()
+        let windowMenu = NSMenu(title: "Window")
+        let reloadItem = windowMenu.addItem(
+            withTitle: "Reload", action: #selector(reloadFrontWindow(_:)), keyEquivalent: "r")
+        reloadItem.target = self
+        let theaterItem = windowMenu.addItem(
+            withTitle: "Theater Mode", action: #selector(toggleFrontTheater(_:)), keyEquivalent: "t")
+        theaterItem.target = self
+        let muteItem = windowMenu.addItem(
+            withTitle: "Mute Audio", action: #selector(toggleFrontMute(_:)), keyEquivalent: "m")
+        muteItem.keyEquivalentModifierMask = [.command, .shift]
+        muteItem.target = self
+        windowMenu.addItem(.separator())
+        let closeItem = windowMenu.addItem(
+            withTitle: "Close Window", action: #selector(closeFrontWindow(_:)), keyEquivalent: "w")
+        closeItem.target = self
+        windowMenuItem.submenu = windowMenu
+        mainMenu.addItem(windowMenuItem)
+
         NSApp.mainMenu = mainMenu
+    }
+
+    // MARK: - Frontmost-window commands
+
+    /// The web window controller whose window is currently key, if any.
+    private func frontWebController() -> WebWindowController? {
+        controllers.values.map(\.webWindow).first(where: \.isKeyWindow)
+    }
+
+    @objc private func reloadFrontWindow(_ sender: Any?) { frontWebController()?.reload() }
+    @objc private func toggleFrontTheater(_ sender: Any?) { frontWebController()?.toggleTheater() }
+    @objc private func toggleFrontMute(_ sender: Any?) { frontWebController()?.toggleMute() }
+
+    @objc private func closeFrontWindow(_ sender: Any?) {
+        if let controller = frontWebController() {
+            controller.hide()
+        } else {
+            NSApp.keyWindow?.performClose(sender) // e.g. the Settings window
+        }
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(toggleFrontTheater(_:)):
+            item.state = (frontWebController()?.isTheaterActive ?? false) ? .on : .off
+            return frontWebController() != nil
+        case #selector(toggleFrontMute(_:)):
+            item.state = (frontWebController()?.isMuted ?? false) ? .on : .off
+            return frontWebController() != nil
+        case #selector(reloadFrontWindow(_:)):
+            return frontWebController() != nil
+        case #selector(closeFrontWindow(_:)):
+            return NSApp.keyWindow != nil
+        default:
+            return true
+        }
     }
 
     // MARK: - Home status item

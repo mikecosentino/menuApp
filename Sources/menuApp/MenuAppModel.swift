@@ -60,6 +60,9 @@ struct MenuApp: Identifiable, Codable, Equatable {
     /// When true, the window's toolbar is hidden and only revealed while the
     /// pointer is near the top edge of the window.
     var autoHideToolbar: Bool
+    /// When true, entering theater mode resizes the window to the video's aspect
+    /// ratio (no letterbox bars) and locks that ratio while the window is resized.
+    var fitTheaterToVideo: Bool
     /// User-agent preset for the web view.
     var userAgentMode: UserAgentMode
     /// Custom user-agent string used when `userAgentMode == .custom`.
@@ -81,6 +84,7 @@ struct MenuApp: Identifiable, Codable, Equatable {
         alwaysOnTop: Bool = false,
         muted: Bool = false,
         autoHideToolbar: Bool = false,
+        fitTheaterToVideo: Bool = true,
         userAgentMode: UserAgentMode = .mobileSafari,
         customUserAgent: String = "",
         hiddenSelectors: [String] = []
@@ -96,6 +100,7 @@ struct MenuApp: Identifiable, Codable, Equatable {
         self.alwaysOnTop = alwaysOnTop
         self.muted = muted
         self.autoHideToolbar = autoHideToolbar
+        self.fitTheaterToVideo = fitTheaterToVideo
         self.userAgentMode = userAgentMode
         self.customUserAgent = customUserAgent
         self.hiddenSelectors = hiddenSelectors
@@ -116,6 +121,7 @@ struct MenuApp: Identifiable, Codable, Equatable {
         alwaysOnTop = try c.decodeIfPresent(Bool.self, forKey: .alwaysOnTop) ?? false
         muted = try c.decodeIfPresent(Bool.self, forKey: .muted) ?? false
         autoHideToolbar = try c.decodeIfPresent(Bool.self, forKey: .autoHideToolbar) ?? false
+        fitTheaterToVideo = try c.decodeIfPresent(Bool.self, forKey: .fitTheaterToVideo) ?? true
         userAgentMode = try c.decodeIfPresent(UserAgentMode.self, forKey: .userAgentMode) ?? .mobileSafari
         customUserAgent = try c.decodeIfPresent(String.self, forKey: .customUserAgent) ?? ""
         hiddenSelectors = try c.decodeIfPresent([String].self, forKey: .hiddenSelectors) ?? []

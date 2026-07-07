@@ -22,9 +22,17 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     private var webView: WKWebView!
     private var headerView: DragHandleView!
     private var hoverReveal: HoverRevealView?
+    private var gripView: ResizeGripView?
     private var contentController: WKUserContentController!
     private var titleLabel: NSTextField!
     private var loadedURL: URL?
+
+    /// Theater "fit to video" state. `theaterAspect` is the video's width/height and
+    /// `theaterFitActive` is true while theater is on and the aspect lock is engaged.
+    /// Exiting theater never resizes the window back — whatever size it's at (from the
+    /// fit-on-enter or a manual resize during theater) becomes the new window size.
+    private var theaterAspect: CGFloat?
+    private var theaterFitActive = false
 
     /// Suppresses the reconcile echo: saving a hidden selector round-trips through
     /// the store and calls `update(with:)` back on this controller. Without this
@@ -40,6 +48,12 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     }
 
     var isVisible: Bool { panel.isVisible }
+
+    /// True when this window is the app's key (focused) window — used to route
+    /// menu-bar keyboard shortcuts to whichever web window is frontmost.
+    var isKeyWindow: Bool { panel.isKeyWindow }
+    var isTheaterActive: Bool { theaterActive }
+    var isMuted: Bool { app.muted }
 
     // MARK: - Construction
 
@@ -151,7 +165,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         let theater = rightButton(
             at: 3,
             symbol: "play.rectangle",
-            action: #selector(toggleTheater(_:)),
+            action: #selector(toggleTheater),
             tip: "Theater mode — isolate the video and expand it to full width")
         self.theaterButton = theater
 
@@ -159,7 +173,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         let mute = rightButton(
             at: 4,
             symbol: app.muted ? "speaker.slash.fill" : "speaker.wave.2",
-            action: #selector(toggleMute(_:)),
+            action: #selector(toggleMute),
             tip: "Mute this window's audio")
         self.muteButton = mute
 
@@ -210,6 +224,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         grip.minSize = panel.minSize
         grip.autoresizingMask = [.minXMargin, .maxYMargin]
         container.addSubview(grip)
+        self.gripView = grip
     }
 
     private func makeButton(symbol: String, action: Selector) -> NSButton {
@@ -282,9 +297,9 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         onAppChanged?(app)
     }
 
-    @objc private func toggleMute(_ sender: NSButton) {
+    @objc func toggleMute() {
         app.muted.toggle()
-        sender.image = NSImage(
+        muteButton?.image = NSImage(
             systemSymbolName: app.muted ? "speaker.slash.fill" : "speaker.wave.2",
             accessibilityDescription: nil)
         applyMuted(app.muted)
@@ -493,9 +508,15 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         saveOrigin()
     }
 
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        constrainToAspect(frameSize)
+    }
+
     func windowDidResize(_ notification: Notification) {
         saveOrigin()
-        // Reflect the manual resize back into the model so Settings shows the live size.
+        // Reflect the resize back into the model so Settings shows the live size.
+        // Resizes while in theater count too: the fitted (or aspect-adjusted) size
+        // becomes the new persisted window size.
         let newWidth = Double(panel.frame.width)
         let newHeight = Double(panel.frame.height) - Double(headerHeight)
         if abs(newWidth - app.width) > 0.5 || abs(newHeight - app.height) > 0.5 {
@@ -534,6 +555,9 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         // header toggles should reflect "off" again for the new page.
         setPickButtonState(active: false)
         setTheaterButtonState(active: false)
+        // Theater is gone after a full navigation; release the aspect lock (the
+        // window keeps its current size).
+        endTheaterFit()
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -608,7 +632,7 @@ extension WebWindowController {
         pickButton?.contentTintColor = active ? .controlAccentColor : .secondaryLabelColor
     }
 
-    @objc func toggleTheater(_ sender: NSButton) {
+    @objc func toggleTheater() {
         theaterActive.toggle()
         setTheaterButtonState(active: theaterActive)
         // JS reports back whether a video was actually found; if not, the button
@@ -663,9 +687,19 @@ extension WebWindowController {
             return
         }
 
-        // Theater mode reporting whether it engaged (false = no video found).
+        // Theater mode reporting whether it engaged (false = no video found), plus
+        // the video's aspect ratio (may be null until metadata loads).
         if let dict = message.body as? [String: Any], let on = dict["theater"] as? Bool {
             setTheaterButtonState(active: on)
+            updateTheaterFit(active: on, aspect: dict["aspect"] as? Double)
+            return
+        }
+
+        // A later aspect-ratio update (metadata loaded, or a new video started).
+        if let dict = message.body as? [String: Any], let aspect = dict["theaterAspect"] as? Double {
+            if theaterFitActive, app.fitTheaterToVideo, aspect > 0 {
+                applyTheaterAspect(CGFloat(aspect))
+            }
             return
         }
 
@@ -678,6 +712,57 @@ extension WebWindowController {
         onAppChanged?(app)
         rebuildSelectorBootstrap()   // keep the next load accurate
         applyHiddenSelectorsLive()   // keep the current page accurate (durable past SPA re-renders)
+    }
+
+    // MARK: - Theater "fit to video"
+
+    /// Extra window height the video area does NOT occupy: the toolbar, unless it
+    /// auto-hides (in which case the web view — and the video — fills the window).
+    private var videoAreaHeaderOffset: CGFloat { app.autoHideToolbar ? 0 : headerHeight }
+
+    /// Called when theater mode turns on or off. Engages/releases the aspect fit.
+    private func updateTheaterFit(active: Bool, aspect: Double?) {
+        guard app.fitTheaterToVideo else {
+            if !active { endTheaterFit() }
+            return
+        }
+        if active {
+            theaterFitActive = true
+            gripView?.constrainSize = { [weak self] size in self?.constrainToAspect(size) ?? size }
+            if let aspect, aspect > 0 { applyTheaterAspect(CGFloat(aspect)) }
+        } else {
+            endTheaterFit()
+        }
+    }
+
+    /// Resizes the window so the video area matches `aspect`, keeping the current
+    /// width and the top-left corner fixed.
+    private func applyTheaterAspect(_ aspect: CGFloat) {
+        theaterAspect = aspect
+        let frame = panel.frame
+        var height = frame.width / aspect + videoAreaHeaderOffset
+        height = max(height, panel.minSize.height)
+        if let screen = panel.screen ?? NSScreen.main {
+            height = min(height, screen.visibleFrame.height)
+        }
+        let newFrame = NSRect(x: frame.minX, y: frame.maxY - height, width: frame.width, height: height)
+        panel.setFrame(newFrame, display: true)
+    }
+
+    /// Given a proposed window size, returns the size that preserves the video's
+    /// aspect ratio (or the proposal unchanged when no fit is active).
+    private func constrainToAspect(_ proposed: NSSize) -> NSSize {
+        guard theaterFitActive, let aspect = theaterAspect, aspect > 0 else { return proposed }
+        let height = max(proposed.width / aspect + videoAreaHeaderOffset, panel.minSize.height)
+        return NSSize(width: proposed.width, height: height)
+    }
+
+    /// Releases the aspect-ratio lock without resizing the window; the current size
+    /// stays and is persisted as the new window size.
+    private func endTheaterFit() {
+        theaterFitActive = false
+        theaterAspect = nil
+        gripView?.constrainSize = nil
     }
 
     // MARK: Injected JavaScript
@@ -874,6 +959,7 @@ extension WebWindowController {
       ];
 
       var undo = [];
+      var stageVideoEl = null; // the <video> whose aspect ratio drives window fit
       function pushUndo(fn) { undo.push(fn); }
       function runUndo() {
         for (var i = undo.length - 1; i >= 0; i--) { try { undo[i](); } catch (e) {} }
@@ -947,6 +1033,27 @@ extension WebWindowController {
           if (ph.parentNode) { ph.parentNode.insertBefore(el, ph); ph.parentNode.removeChild(ph); }
         });
       }
+      // The video's aspect ratio (width/height), or null if unknown (metadata not
+      // yet loaded, or a cross-origin iframe we can't read into).
+      function getAspect() {
+        var v = stageVideoEl;
+        if (v && v.videoWidth > 0 && v.videoHeight > 0) return v.videoWidth / v.videoHeight;
+        return null;
+      }
+      // Report the aspect ratio again whenever it becomes known or changes (e.g. a
+      // new video in an autoplay queue). The <video> "resize" event fires on
+      // dimension changes; "loadedmetadata" covers the first reveal.
+      function watchAspect() {
+        var v = stageVideoEl;
+        if (!v) return;
+        var report = function () { post({ theaterAspect: getAspect() }); };
+        v.addEventListener("loadedmetadata", report);
+        v.addEventListener("resize", report);
+        pushUndo(function () {
+          v.removeEventListener("loadedmetadata", report);
+          v.removeEventListener("resize", report);
+        });
+      }
       function hideBodyChildrenExcept(keep) {
         var kids = Array.prototype.slice.call(document.body.children);
         kids.forEach(function (k) {
@@ -967,11 +1074,14 @@ extension WebWindowController {
           isVideo = !!(target && target.tagName === "VIDEO");
         }
         if (!target) return false;
+        stageVideoEl = isVideo ? target : (target.querySelector ? target.querySelector("video") : null);
         document.documentElement.classList.add("__menuapp-theater");
         pushUndo(function () { document.documentElement.classList.remove("__menuapp-theater"); });
         ensureStyle();
         reparentToBody(target, isVideo);
         hideBodyChildrenExcept(target);
+        watchAspect();
+        pushUndo(function () { stageVideoEl = null; });
         // Nudge the site player to relayout into its new full-window box.
         try { window.dispatchEvent(new Event("resize")); } catch (e) {}
         return true;
@@ -979,8 +1089,9 @@ extension WebWindowController {
       window.__menuAppTheater = {
         setActive: function (on) {
           if (on) {
-            if (undo.length) { post({ theater: true }); return; }
-            post({ theater: !!apply() });
+            if (undo.length) { post({ theater: true, aspect: getAspect() }); return; }
+            var ok = apply();
+            post({ theater: !!ok, aspect: ok ? getAspect() : null });
           } else {
             runUndo();
             try { window.dispatchEvent(new Event("resize")); } catch (e) {}

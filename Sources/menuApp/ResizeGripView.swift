@@ -5,6 +5,10 @@ import AppKit
 final class ResizeGripView: NSView {
     var minSize = NSSize(width: 280, height: 240)
 
+    /// Optional hook to constrain the dragged size (e.g. lock the aspect ratio in
+    /// theater mode). Given the post-min-clamp size, returns the size to apply.
+    var constrainSize: ((NSSize) -> NSSize)?
+
     override func resetCursorRects() {
         // Diagonal resize affordance.
         addCursorRect(bounds, cursor: .crosshair)
@@ -37,6 +41,11 @@ final class ResizeGripView: NSView {
         var height = topY - mouse.y
         width = max(width, minSize.width)
         height = max(height, minSize.height)
+        if let constrainSize {
+            let s = constrainSize(NSSize(width: width, height: height))
+            width = s.width
+            height = s.height
+        }
 
         let newFrame = NSRect(x: leftX, y: topY - height, width: width, height: height)
         window.setFrame(newFrame, display: true)
