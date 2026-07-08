@@ -74,6 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             withTitle: "Mute Audio", action: #selector(toggleFrontMute(_:)), keyEquivalent: "m")
         muteItem.keyEquivalentModifierMask = [.command, .shift]
         muteItem.target = self
+        let copyURLItem = windowMenu.addItem(
+            withTitle: "Copy URL", action: #selector(copyFrontURL(_:)), keyEquivalent: "c")
+        copyURLItem.keyEquivalentModifierMask = [.command, .shift]
+        copyURLItem.target = self
         windowMenu.addItem(.separator())
         let closeItem = windowMenu.addItem(
             withTitle: "Close Window", action: #selector(closeFrontWindow(_:)), keyEquivalent: "w")
@@ -94,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func reloadFrontWindow(_ sender: Any?) { frontWebController()?.reload() }
     @objc private func toggleFrontTheater(_ sender: Any?) { frontWebController()?.toggleTheater() }
     @objc private func toggleFrontMute(_ sender: Any?) { frontWebController()?.toggleMute() }
+    @objc private func copyFrontURL(_ sender: Any?) { frontWebController()?.copyCurrentURL() }
 
     @objc private func closeFrontWindow(_ sender: Any?) {
         if let controller = frontWebController() {
@@ -111,7 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case #selector(toggleFrontMute(_:)):
             item.state = (frontWebController()?.isMuted ?? false) ? .on : .off
             return frontWebController() != nil
-        case #selector(reloadFrontWindow(_:)):
+        case #selector(reloadFrontWindow(_:)), #selector(copyFrontURL(_:)):
             return frontWebController() != nil
         case #selector(closeFrontWindow(_:)):
             return NSApp.keyWindow != nil

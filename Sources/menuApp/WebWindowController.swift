@@ -137,6 +137,10 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         // Reload
         _ = leftButton(at: 3, symbol: "arrow.clockwise", action: #selector(reload), tip: "Reload")
 
+        // Copy URL
+        self.copyURLButton = leftButton(
+            at: 4, symbol: "link", action: #selector(copyCurrentURL), tip: "Copy URL (⇧⌘C)")
+
         // Pin toggle (rightmost)
         let pin = rightButton(
             at: 0,
@@ -182,7 +186,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
         titleLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         titleLabel.alignment = .center
         titleLabel.lineBreakMode = .byTruncatingTail
-        titleLabel.frame = NSRect(x: 104, y: (headerHeight - 16) / 2, width: size.width - 232, height: 16)
+        titleLabel.frame = NSRect(x: 128, y: (headerHeight - 16) / 2, width: size.width - 256, height: 16)
         titleLabel.autoresizingMask = [.width]
         header.addSubview(titleLabel)
     }
@@ -195,6 +199,7 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
     private var theaterButton: NSButton?
     private var theaterActive = false
     private var muteButton: NSButton?
+    private var copyURLButton: NSButton?
 
     private func buildWebView(in container: NSView, size: NSSize) {
         let config = WKWebViewConfiguration()
@@ -269,6 +274,26 @@ final class WebWindowController: NSObject, NSWindowDelegate, WKUIDelegate, WKNav
 
     @objc func reload() {
         if loadedURL == nil { ensureLoaded() } else { webView.reload() }
+    }
+
+    /// Copies the page's current URL (the live web-view URL, falling back to the
+    /// app's configured URL) to the pasteboard, and briefly confirms in the toolbar.
+    @objc func copyCurrentURL() {
+        guard let url = webView.url ?? app.url else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(url.absoluteString, forType: .string)
+        flashCopyConfirmation()
+    }
+
+    /// Momentarily swaps the Copy URL icon to a checkmark so the copy is visible
+    /// (the shortcut and button are otherwise silent).
+    private func flashCopyConfirmation() {
+        guard let button = copyURLButton else { return }
+        button.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak button] in
+            button?.image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)
+        }
     }
 
     @objc private func goBack() {

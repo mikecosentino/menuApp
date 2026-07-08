@@ -32,11 +32,14 @@ Requires macOS 13+ and the Swift toolchain (ships with Xcode / Command Line Tool
   and is reflected live in the Settings width/height fields.
 - **Pin** (📌 in the window header) keeps the window open when it loses focus.
   Unpinned windows close when you click away, like a popover.
-- The header splits its controls: **close** (✕), **back** (‹), **home** (⌂), and
-  **reload** (↻) sit on the left; **mute** (🔈), **theater** (▶▭), **hide elements**
-  (eye-slash), **always-on-top** (⬆) and **pin** (📌) sit on the right.
+- The header splits its controls: **close** (✕), **back** (‹), **home** (⌂),
+  **reload** (↻), and **copy URL** (🔗) sit on the left; **mute** (🔈), **theater**
+  (▶▭), **hide elements** (eye-slash), **always-on-top** (⬆) and **pin** (📌) sit on
+  the right.
+- **Copy URL** (link icon, ⇧⌘C) — copies the page's current address to the clipboard;
+  the icon flashes a checkmark to confirm.
 - **Keyboard shortcuts** act on the focused window: **⌘T** theater, **⇧⌘M** mute,
-  **⌘R** reload, **⌘W** close.
+  **⌘R** reload, **⌘W** close, **⇧⌘C** copy URL.
 - **Mute** (speaker icon, ⇧⌘M) — silences that window's audio at the page level
   (covers HTML media and Web Audio). Remembered per site and reasserted across
   page navigations.
